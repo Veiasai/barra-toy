@@ -41,7 +41,7 @@ with right:
 
 st.subheader("Exposure Matrix X")
 st.caption("行是股票，列是风险因子；这个矩阵把个股收益和因子收益连接起来。")
-row_limit = st.slider("Rows to display", 10, min(100, len(scenario.exposures)), 40, step=10)
+row_limit = st.slider("Rows to display", 10, len(scenario.exposures), min(80, len(scenario.exposures)), step=10)
 st.dataframe(scenario.exposures.head(row_limit).round(3), width="stretch")
 
 st.subheader("Exposure Heatmap")

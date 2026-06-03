@@ -47,11 +47,23 @@ with tab1:
     with c1:
         st.subheader("Raw Universe")
         st.caption("模拟股票池，包含行业、市值、估值、换手率、动量和波动率等原始描述符。")
-        st.dataframe(scenario.universe.head(20), width="stretch")
+        st.dataframe(scenario.universe, width="stretch", height=520)
+        st.download_button(
+            "Download raw universe CSV",
+            scenario.universe.to_csv().encode("utf-8"),
+            file_name="raw_universe.csv",
+            mime="text/csv",
+        )
     with c2:
         st.subheader("Exposure Matrix X")
         st.caption("X 记录每只股票对风格和行业风险因子的暴露，也是截面回归里的设计矩阵。")
-        st.dataframe(scenario.exposures.head(20).round(3), width="stretch")
+        st.dataframe(scenario.exposures.round(3), width="stretch", height=520)
+        st.download_button(
+            "Download exposure matrix CSV",
+            scenario.exposures.to_csv().encode("utf-8"),
+            file_name="exposure_matrix.csv",
+            mime="text/csv",
+        )
 
     st.subheader("Regression Weight Distribution")
     st.caption("这是加权最小二乘回归里的样本权重，用来估计因子收益；它不是组合持仓权重。")
