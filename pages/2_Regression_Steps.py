@@ -85,6 +85,14 @@ c2.metric("Condition number", f"{diag['condition_number']:.2e}")
 c3.metric("Min eigenvalue", f"{diag['min_eigenvalue']:.2e}")
 c4.metric("Weighted SSE", f"{diag['weighted_sse']:.2e}")
 
+st.subheader("Regression Quality")
+st.caption("这些指标衡量因子部分解释了多少个股收益；噪声越大，R² 和 signal-to-noise 通常越低。")
+q1, q2, q3, q4 = st.columns(4)
+q1.metric("R²", f"{diag['r_squared']:.2%}")
+q2.metric("Signal / noise", f"{diag['signal_to_noise']:.2f}")
+q3.metric("Explained variance", f"{diag['explained_variance']:.2e}")
+q4.metric("Residual variance", f"{diag['residual_variance']:.2e}")
+
 tab1, tab2, tab3, tab4 = st.tabs(["Formula Output", "Matrices", "Attribution", "Eigenvalues"])
 
 with tab1:

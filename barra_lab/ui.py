@@ -6,6 +6,28 @@ import streamlit as st
 from barra_lab.data import make_scenario
 
 
+SIMULATION_PRESETS = {
+    "Clean teaching": {
+        "specific_scale": 0.35,
+        "style_vol": 0.010,
+        "industry_vol": 0.008,
+        "description": "低特质噪声、高因子信号，适合先看清回归链路。",
+    },
+    "Realistic noisy": {
+        "specific_scale": 1.00,
+        "style_vol": 0.006,
+        "industry_vol": 0.004,
+        "description": "特质噪声较高，更接近真实股票收益的嘈杂状态。",
+    },
+    "Stress test": {
+        "specific_scale": 2.00,
+        "style_vol": 0.003,
+        "industry_vol": 0.002,
+        "description": "高噪声、弱因子信号，用来观察模型解释力下降。",
+    },
+}
+
+
 def configure_page(title: str) -> None:
     st.set_page_config(page_title=title, layout="wide")
 
@@ -41,6 +63,7 @@ def scenario_sidebar() -> dict[str, object]:
     return_seed_key, return_seed_store = _scenario_widget("return_seed", 11)
     winsor_z_key, winsor_z_store = _scenario_widget("winsor_z", 3.0)
     standardize_key, standardize_store = _scenario_widget("standardize_styles", True)
+    simulation_mode_key, simulation_mode_store = _scenario_widget("simulation_mode", "Clean teaching")
     specific_scale_key, specific_scale_store = _scenario_widget("specific_scale", 1.0)
     style_vol_key, style_vol_store = _scenario_widget("style_vol", 0.006)
     industry_vol_key, industry_vol_store = _scenario_widget("industry_vol", 0.004)
@@ -96,35 +119,57 @@ def scenario_sidebar() -> dict[str, object]:
         on_change=_save_scenario_widget,
         args=(standardize_key, standardize_store),
     )
-    specific_scale = st.sidebar.slider(
-        "Specific risk scale",
-        0.25,
-        3.0,
-        step=0.25,
-        key=specific_scale_key,
+    simulation_mode_options = ["Clean teaching", "Realistic noisy", "Stress test", "Custom"]
+    if st.session_state[simulation_mode_key] not in simulation_mode_options:
+        st.session_state[simulation_mode_key] = "Clean teaching"
+        st.session_state[simulation_mode_store] = "Clean teaching"
+    simulation_mode = st.sidebar.selectbox(
+        "Simulation mode",
+        simulation_mode_options,
+        key=simulation_mode_key,
         on_change=_save_scenario_widget,
-        args=(specific_scale_key, specific_scale_store),
+        args=(simulation_mode_key, simulation_mode_store),
     )
-    style_vol = st.sidebar.slider(
-        "Style factor daily vol",
-        0.001,
-        0.020,
-        step=0.001,
-        format="%.3f",
-        key=style_vol_key,
-        on_change=_save_scenario_widget,
-        args=(style_vol_key, style_vol_store),
-    )
-    industry_vol = st.sidebar.slider(
-        "Industry factor daily vol",
-        0.001,
-        0.020,
-        step=0.001,
-        format="%.3f",
-        key=industry_vol_key,
-        on_change=_save_scenario_widget,
-        args=(industry_vol_key, industry_vol_store),
-    )
+    if simulation_mode == "Custom":
+        specific_scale = st.sidebar.slider(
+            "Specific risk scale",
+            0.25,
+            3.0,
+            step=0.25,
+            key=specific_scale_key,
+            on_change=_save_scenario_widget,
+            args=(specific_scale_key, specific_scale_store),
+        )
+        style_vol = st.sidebar.slider(
+            "Style factor daily vol",
+            0.001,
+            0.020,
+            step=0.001,
+            format="%.3f",
+            key=style_vol_key,
+            on_change=_save_scenario_widget,
+            args=(style_vol_key, style_vol_store),
+        )
+        industry_vol = st.sidebar.slider(
+            "Industry factor daily vol",
+            0.001,
+            0.020,
+            step=0.001,
+            format="%.3f",
+            key=industry_vol_key,
+            on_change=_save_scenario_widget,
+            args=(industry_vol_key, industry_vol_store),
+        )
+    else:
+        preset = SIMULATION_PRESETS[simulation_mode]
+        specific_scale = preset["specific_scale"]
+        style_vol = preset["style_vol"]
+        industry_vol = preset["industry_vol"]
+        st.sidebar.caption(preset["description"])
+        st.sidebar.caption(
+            f"effective: specific scale={specific_scale:.2f}, style vol={style_vol:.3f}, "
+            f"industry vol={industry_vol:.3f}"
+        )
     return {
         "n_stocks": n_stocks,
         "n_days": n_days,

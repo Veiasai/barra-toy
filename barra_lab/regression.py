@@ -40,6 +40,14 @@ def regression_steps(
     eigvals = np.linalg.eigvalsh(xtwx)
     rank = int(np.linalg.matrix_rank(xtwx))
     cond = float(np.linalg.cond(xtwx))
+    weighted_mean = float(np.sum(w * r) / np.sum(w))
+    weighted_tss = float(np.sum(w * np.square(r - weighted_mean)))
+    weighted_sse = float(np.sum(w * residual * residual))
+    weighted_explained = float(np.sum(w * np.square(fitted - weighted_mean)))
+    residual_variance = float(np.sum(w * np.square(residual)) / np.sum(w))
+    explained_variance = float(np.sum(w * np.square(fitted - weighted_mean)) / np.sum(w))
+    r_squared = float(1.0 - weighted_sse / weighted_tss) if weighted_tss > 0 else 0.0
+    signal_to_noise = float(explained_variance / residual_variance) if residual_variance > 0 else float("inf")
 
     factor_returns = pd.Series(f_hat, index=exposures.columns, name="factor_return")
     attribution = pd.DataFrame(
@@ -63,7 +71,13 @@ def regression_steps(
         "condition_number": cond,
         "min_eigenvalue": float(eigvals.min()),
         "max_eigenvalue": float(eigvals.max()),
-        "weighted_sse": float(np.sum(w * residual * residual)),
+        "weighted_sse": weighted_sse,
+        "weighted_tss": weighted_tss,
+        "weighted_explained": weighted_explained,
+        "r_squared": r_squared,
+        "explained_variance": explained_variance,
+        "residual_variance": residual_variance,
+        "signal_to_noise": signal_to_noise,
         "residual_std": float(np.std(residual, ddof=0)),
     }
 
@@ -84,4 +98,3 @@ def residuals_panel(
     fitted = factor_returns @ exposures.T
     fitted = fitted.loc[stock_returns.index, stock_returns.columns]
     return stock_returns - fitted
-
