@@ -1,12 +1,10 @@
-# Barra 多因子模型复习笔记
+# Barra Learning Workspace
 
-这是一个 Barra 风格多因子模型的玩具样例，用来理解三件事：
+这个仓库用于学习 Barra 风格多因子模型、最小二乘截面回归、风险分解、组合优化和相关数学基础。
 
-1. 个股收益如何被分解成因子收益和特质收益
-2. 因子收益如何通过截面回归估计
-3. 协方差矩阵、特征值、正定性、优化器之间是什么关系
+## 快速运行
 
-运行脚本：
+基础脚本只依赖 `numpy` 和 `pandas`：
 
 ```bash
 python -m venv .venv
@@ -15,204 +13,103 @@ pip install -r requirements.txt
 python barra_toy_example.py
 ```
 
-## 1. 核心模型
+交互式学习工具使用 `streamlit`、`plotly` 和 `scipy`：
 
-Barra 风格模型最基本的形式是：
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py --server.address 0.0.0.0 --server.port 8501
+```
+
+在 VS Code SSH Remote 里，把远程端口 `8501` 转发到本地，然后在浏览器打开 Streamlit 给出的本地地址。
+
+## 仓库内容
+
+### 样例脚本
+
+- [barra_toy_example.py](/home/devops/barra/barra_toy_example.py): 一个独立可运行的 Barra 玩具样例，生成模拟股票数据、构造风格/行业因子暴露、模拟股票收益，并通过截面加权回归估计每日因子收益。
+
+### 计算模块
+
+- [barra_lab/data.py](/home/devops/barra/barra_lab/data.py): 生成模拟股票 universe、构造因子暴露、模拟因子收益和个股收益。
+- [barra_lab/regression.py](/home/devops/barra/barra_lab/regression.py): 执行截面加权回归，输出因子收益、收益分解、矩阵中间量和诊断指标。
+- [barra_lab/risk.py](/home/devops/barra/barra_lab/risk.py): 计算因子协方差矩阵、特质方差、股票协方差矩阵和组合风险分解。
+- [barra_lab/optimizer.py](/home/devops/barra/barra_lab/optimizer.py): 用 alpha、协方差矩阵、交易成本和约束做组合优化。
+- [barra_lab/plots.py](/home/devops/barra/barra_lab/plots.py): Plotly 图表辅助函数。
+- [barra_lab/ui.py](/home/devops/barra/barra_lab/ui.py): Streamlit 页面配置、侧边栏参数和场景缓存辅助函数。
+
+### 交互页面
+
+- [app.py](/home/devops/barra/app.py): 总览页，展示从模拟数据到风险矩阵的完整流水线。
+- [pages/1_Factor_Exposures.py](/home/devops/barra/pages/1_Factor_Exposures.py): 因子暴露页面，可调 winsorize、标准化、股票数量和风险参数。
+- [pages/2_Regression_Steps.py](/home/devops/barra/pages/2_Regression_Steps.py): 截面回归页面，可直接编辑单日股票收益和回归权重，并展示 `X`、`W`、`X'WX`、伪逆和残差。
+- [pages/3_Risk_Model.py](/home/devops/barra/pages/3_Risk_Model.py): 风险模型页面，展示 `F`、`D`、`Sigma`、特征值和组合风险分解。
+- [pages/4_Optimizer.py](/home/devops/barra/pages/4_Optimizer.py): 优化器页面，可编辑 alpha、基准权重、当前权重、风险厌恶、交易成本和约束。
+
+### 学习笔记
+
+- [barra_factor_model_notes.md](/home/devops/barra/barra_factor_model_notes.md): Barra 多因子模型复习笔记，覆盖因子暴露、因子收益、协方差矩阵、特质风险、正定性和优化器。
+- [optimizer.md](/home/devops/barra/optimizer.md): Barra 优化器笔记，覆盖目标函数、风险惩罚、交易成本、约束、无闭式解算法和收敛证明思路。
+- [calculus_optimization_notes.md](/home/devops/barra/calculus_optimization_notes.md): 微积分与优化基础笔记，覆盖最小二乘、矩阵求导、梯度、Hessian、梯度下降、神经网络反向传播和可导性。
+
+## 核心公式
+
+Barra 风格收益分解：
 
 ```text
 r = X f + epsilon
 ```
 
-其中：
-
-- `r` 是股票收益向量
-- `X` 是因子暴露矩阵
-- `f` 是因子收益向量
-- `epsilon` 是特质收益
-
-直觉上：
-
-- `X` 说明每只股票“暴露在什么风险上”
-- `f` 说明“这个风险今天赚了多少/亏了多少”
-- `epsilon` 是模型解释不了的那部分
-
-## 2. 因子暴露怎么来
-
-暴露不是凭空来的，而是“定义 + 计算”。
-
-常见风格因子：
-
-- Size: `log(market_cap)`
-- Value: `book_to_price`
-- Momentum: `12m` 动量
-- Liquidity: `turnover`
-- Volatility: 历史波动率
-
-行业因子通常是 one-hot：
-
-- Bank
-- Tech
-- Energy
-- Consumer
-
-样例脚本里会先对风格变量做去极值和标准化，再拼成 `X`。
-
-## 3. 因子收益怎么估计
-
-每天做一次截面加权回归：
+截面加权回归估计因子收益：
 
 ```text
 f_hat = (X' W X)^(-1) X' W r
 ```
 
-其中：
-
-- `W` 是权重矩阵，常与市值或特质方差有关
-- `f_hat` 是当天估计的因子收益
-
-在代码里，样例用的是加权最小二乘的最小闭环版本。
-
-## 4. 为什么要看协方差矩阵
-
-股票收益协方差矩阵记作：
-
-```text
-Sigma = Cov(r)
-```
-
-Barra 常把它拆成：
+股票协方差矩阵：
 
 ```text
 Sigma = X F X' + D
 ```
 
-其中：
-
-- `F` 是因子收益协方差矩阵
-- `D` 是特质风险矩阵，通常近似为对角矩阵
-
-这比直接估计巨大的股票协方差矩阵更稳，也更可解释。
-
-## 5. 为什么要拆开再合成
-
-直接用股票收益估协方差矩阵也可以，但通常会遇到：
-
-- 参数太多
-- 样本太短
-- 矩阵不稳定
-- 优化器容易被噪声误导
-
-拆成 `X F X' + D` 的好处是：
-
-- 用少数因子解释主要共同波动
-- 残差部分只保留特质风险
-- 方便做行业、风格、特质风险归因
-
-## 6. 特征值、正定、凸性
-
-对称矩阵 `A` 如果所有特征值都大于 0，就叫正定。
-
-这等价于：
+组合风险：
 
 ```text
-x' A x > 0, 对任意非零 x
+Var(portfolio) = w' Sigma w
 ```
 
-在优化里，这意味着二次目标函数是严格凸的，解唯一且稳定。
-
-在风险模型里，这意味着：
-
-- 没有非零方向是零风险
-- 组合风险 `w' Sigma w` 总是非负
-- 协方差矩阵是半正定或正定
-
-## 7. 组合风险为什么是 `w' Sigma w`
-
-如果组合权重是 `w`，组合收益是：
+Barra 风险分解形式：
 
 ```text
-r_p = w' r
+w' Sigma w = (X'w)' F (X'w) + w'Dw
 ```
 
-则组合方差是：
+组合优化目标的一种常见写法：
 
 ```text
-Var(r_p) = w' Sigma w
+max_w alpha'w - lambda/2 * w' Sigma w - transaction_cost(w)
 ```
 
-这不是额外假设，而是方差展开公式的矩阵写法。
+## 学习路径
 
-## 8. 优化器怎么写
+建议按这个顺序看：
 
-Barra 风格的优化器一般长这样：
+1. 运行 [barra_toy_example.py](/home/devops/barra/barra_toy_example.py)，先看完整数据流。
+2. 阅读 [barra_factor_model_notes.md](/home/devops/barra/barra_factor_model_notes.md)，理解 Barra 模型主线。
+3. 阅读 [calculus_optimization_notes.md](/home/devops/barra/calculus_optimization_notes.md)，补齐最小二乘和梯度基础。
+4. 阅读 [optimizer.md](/home/devops/barra/optimizer.md)，理解如何把风险模型放进组合优化器。
+5. 再看 `barra_lab/` 下的模块化实现。
 
-```text
-max_w  alpha'w - (lambda / 2) * w' Sigma w - transaction_cost(w)
-```
+## 当前定位
 
-常见约束有：
+这个仓库是学习和实验用途，不是生产级风险模型。真实 Barra 或机构风险系统还会涉及：
 
-- `sum(w) = 1`
-- 单票上限
-- 行业暴露约束
-- 风格暴露约束
-- 换手率约束
-
-如果有基准组合 `b`，也常写成主动权重 `h = w - b`，然后控制：
-
-```text
-h' Sigma h
-```
-
-## 9. Alpha 和 Barra 因子
-
-Alpha 是收益预测信号，Barra 因子是风险因子。
-
-它们可以重叠，但角色不同：
-
-- Alpha: 想赚什么
-- Barra: 要控制什么风险
-
-实务里常把 alpha 对 Barra 风险因子中性化，避免无意中押注某个风格或行业。
-
-## 10. 交易成本
-
-交易成本通常加在优化目标里：
-
-```text
-TC(w) = sum_i c_i |w_i - w_old_i|
-```
-
-或再加二次冲击成本：
-
-```text
-TC(w) = sum_i c_i |w_i - w_old_i| + sum_i q_i (w_i - w_old_i)^2
-```
-
-含义是：
-
-- 调仓越大，成本越高
-- 流动性越差，成本越高
-- 只有 alpha 足够覆盖成本，优化器才会换仓
-
-## 11. 本脚本做了什么
-
-`barra_toy_example.py` 会：
-
-1. 生成一组模拟股票特征
-2. 构造风格因子和行业因子暴露
-3. 模拟真实因子收益和个股收益
-4. 用截面加权回归估计每日因子收益
-5. 打印收益分解样例
-
-这个脚本不是生产级 Barra，只是为了把数学链路走通。
-
-## 12. 一句话总结
-
-Barra 的核心不是“直接预测股票涨跌”，而是：
-
-```text
-用少数公共因子解释股票收益，
-用协方差结构预测组合风险，
-再把 alpha、风险、交易成本放进同一个优化器里。
-```
+- 更完整的因子定义和数据清洗
+- 行业/国家/风格约束
+- 因子正交化
+- 因子协方差估计与半衰期
+- 特质风险模型
+- 风险预测校准
+- 交易成本模型
+- 组合约束和执行系统
