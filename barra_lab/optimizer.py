@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize
+from scipy.optimize import Bounds, LinearConstraint, minimize
 
 from barra_lab.data import STYLE_FACTORS
 
@@ -24,6 +24,31 @@ def _normal_start(n: int, upper_bound: float) -> np.ndarray:
     if upper_bound * n < 1.0:
         return x0
     return np.minimum(x0, upper_bound) / np.minimum(x0, upper_bound).sum()
+
+
+def _cap_and_redistribute(weights: np.ndarray, upper_bound: float) -> np.ndarray:
+    """Project a long-only weight vector onto sum=1 and max-weight bounds."""
+    w = np.maximum(weights.astype(float), 0.0)
+    if w.sum() <= 0:
+        return _normal_start(len(w), upper_bound)
+    w = w / w.sum()
+
+    capped = np.minimum(w, upper_bound)
+    remaining = 1.0 - capped.sum()
+    while remaining > 1e-12:
+        room = upper_bound - capped
+        eligible = room > 1e-12
+        if not np.any(eligible):
+            break
+        add = remaining * room / room[eligible].sum()
+        add[~eligible] = 0.0
+        step = np.minimum(add, room)
+        capped += step
+        new_remaining = 1.0 - capped.sum()
+        if abs(new_remaining - remaining) < 1e-14:
+            break
+        remaining = new_remaining
+    return capped / capped.sum()
 
 
 def optimize_portfolio(
@@ -59,19 +84,47 @@ def optimize_portfolio(
         current_v = current.reindex(tickers).fillna(0.0).to_numpy(dtype=float)
         current_v = current_v / current_v.sum()
 
-    def objective(w: np.ndarray) -> float:
-        trade = w - current_v
-        utility = (
-            alpha_v @ w
-            - 0.5 * risk_aversion * float(w @ sigma_m @ w)
-            - linear_cost * np.sum(np.abs(trade))
-            - quadratic_cost * float(trade @ trade)
-        )
-        return -utility
+    def unpack(z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return z[:n], z[n:]
 
-    constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
-    if turnover_limit is not None:
-        constraints.append({"type": "ineq", "fun": lambda w: turnover_limit - np.sum(np.abs(w - current_v))})
+    def objective(z: np.ndarray) -> float:
+        w, turnover_aux = unpack(z)
+        trade = w - current_v
+        return float(
+            -alpha_v @ w
+            + 0.5 * risk_aversion * float(w @ sigma_m @ w)
+            + linear_cost * np.sum(turnover_aux)
+            + quadratic_cost * float(trade @ trade)
+        )
+
+    def objective_grad(z: np.ndarray) -> np.ndarray:
+        w, _ = unpack(z)
+        trade = w - current_v
+        grad_w = -alpha_v + risk_aversion * (sigma_m @ w) + 2.0 * quadratic_cost * trade
+        grad_u = np.full(n, linear_cost)
+        return np.concatenate([grad_w, grad_u])
+
+    constraints = []
+    sum_row = np.zeros((1, 2 * n))
+    sum_row[0, :n] = 1.0
+    constraints.append(LinearConstraint(sum_row, 1.0, 1.0))
+
+    turnover_row = np.zeros((1, 2 * n))
+    turnover_row[0, n:] = 1.0
+    constraints.append(LinearConstraint(turnover_row, 0.0, turnover_limit))
+
+    abs_rows = np.zeros((2 * n, 2 * n))
+    abs_lower = np.empty(2 * n)
+    abs_upper = np.full(2 * n, np.inf)
+    for i in range(n):
+        abs_rows[2 * i, i] = -1.0
+        abs_rows[2 * i, n + i] = 1.0
+        abs_lower[2 * i] = -current_v[i]
+
+        abs_rows[2 * i + 1, i] = 1.0
+        abs_rows[2 * i + 1, n + i] = 1.0
+        abs_lower[2 * i + 1] = current_v[i]
+    constraints.append(LinearConstraint(abs_rows, abs_lower, abs_upper))
 
     style_idx = [i for i, f in enumerate(factor_names) if f in STYLE_FACTORS]
     industry_idx = [i for i, f in enumerate(factor_names) if f not in STYLE_FACTORS]
@@ -79,33 +132,37 @@ def optimize_portfolio(
     def add_active_exposure_constraints(indices: list[int], limit: float | None) -> None:
         if limit is None:
             return
+        rows = np.zeros((len(indices), 2 * n))
+        lower = np.empty(len(indices))
+        upper = np.empty(len(indices))
         for idx in indices:
-            constraints.append(
-                {
-                    "type": "ineq",
-                    "fun": lambda w, j=idx: limit - float(x_m[:, j] @ (w - benchmark_v)),
-                }
-            )
-            constraints.append(
-                {
-                    "type": "ineq",
-                    "fun": lambda w, j=idx: limit + float(x_m[:, j] @ (w - benchmark_v)),
-                }
-            )
+            row_idx = indices.index(idx)
+            rows[row_idx, :n] = x_m[:, idx]
+            benchmark_exposure = float(x_m[:, idx] @ benchmark_v)
+            lower[row_idx] = benchmark_exposure - limit
+            upper[row_idx] = benchmark_exposure + limit
+        constraints.append(LinearConstraint(rows, lower, upper))
 
     add_active_exposure_constraints(style_idx, style_active_limit)
     add_active_exposure_constraints(industry_idx, industry_active_limit)
 
+    w0 = _cap_and_redistribute(current_v, upper_bound)
+    u0 = np.abs(w0 - current_v)
+    if turnover_limit is not None and u0.sum() > turnover_limit:
+        u0 = u0 * (turnover_limit / u0.sum())
+    z0 = np.concatenate([w0, u0])
+
     result = minimize(
         objective,
-        _normal_start(n, upper_bound),
+        z0,
         method="SLSQP",
-        bounds=[(0.0, upper_bound)] * n,
+        jac=objective_grad,
+        bounds=Bounds(np.zeros(2 * n), np.concatenate([np.full(n, upper_bound), np.full(n, 2.0)])),
         constraints=constraints,
-        options={"maxiter": 500, "ftol": 1e-12},
+        options={"maxiter": 1000, "ftol": 1e-12},
     )
 
-    w = result.x
+    w = result.x[:n]
     weights = pd.Series(w, index=tickers, name="optimized_weight")
     active = w - benchmark_v
     trade = w - current_v
@@ -172,4 +229,3 @@ def optimize_portfolio(
         exposures=active_exposure,
         constraint_report=pd.DataFrame(rows),
     )
-
