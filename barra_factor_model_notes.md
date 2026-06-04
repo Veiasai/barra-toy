@@ -142,7 +142,86 @@ Var(r_p) = w' Sigma w
 
 这不是额外假设，而是方差展开公式的矩阵写法。
 
-## 8. 优化器怎么写
+## 8. Sigma 和因子风险分解
+
+`Sigma` 本身是股票层面的协方差矩阵，行列都是股票。
+
+如果只有最终的：
+
+```text
+Sigma
+```
+
+不能唯一拆回具体因子。很多不同的因子结构都可能合成同一个股票协方差矩阵。
+
+要做 Barra 风格的因子分解，必须保留：
+
+```text
+Sigma = X F X' + D
+```
+
+其中：
+
+- `X` 是股票因子暴露矩阵
+- `F` 是因子收益协方差矩阵
+- `D` 是特质风险矩阵
+
+组合权重为 `w` 时：
+
+```text
+w' Sigma w = w'(X F X' + D)w
+```
+
+展开：
+
+```text
+w' Sigma w = w'X F X'w + w'Dw
+```
+
+令：
+
+```text
+g = X'w
+```
+
+其中 `g` 是组合因子暴露，则：
+
+```text
+组合总方差 = g'F g + w'Dw
+```
+
+也就是：
+
+```text
+总风险 = 因子风险 + 特质风险
+```
+
+每个因子的风险贡献常写成：
+
+```text
+factor_contribution_k = g_k * (F g)_k
+```
+
+所有因子贡献加总后等于：
+
+```text
+g'F g
+```
+
+特质风险贡献通常是：
+
+```text
+specific_contribution_i = w_i^2 * D_ii
+```
+
+所以：
+
+```text
+只有 Sigma: 可以算总风险和股票级风险贡献
+有 X/F/D: 可以拆成 Size、Value、行业、Momentum 等因子风险贡献
+```
+
+## 9. 优化器怎么写
 
 Barra 风格的优化器一般长这样：
 
@@ -164,7 +243,7 @@ max_w  alpha'w - (lambda / 2) * w' Sigma w - transaction_cost(w)
 h' Sigma h
 ```
 
-## 9. Alpha 和 Barra 因子
+## 10. Alpha 和 Barra 因子
 
 Alpha 是收益预测信号，Barra 因子是风险因子。
 
@@ -175,7 +254,7 @@ Alpha 是收益预测信号，Barra 因子是风险因子。
 
 实务里常把 alpha 对 Barra 风险因子中性化，避免无意中押注某个风格或行业。
 
-## 10. 交易成本
+## 11. 交易成本
 
 交易成本通常加在优化目标里：
 
@@ -195,7 +274,7 @@ TC(w) = sum_i c_i |w_i - w_old_i| + sum_i q_i (w_i - w_old_i)^2
 - 流动性越差，成本越高
 - 只有 alpha 足够覆盖成本，优化器才会换仓
 
-## 11. 本脚本做了什么
+## 12. 本脚本做了什么
 
 `barra_toy_example.py` 会：
 
@@ -207,7 +286,7 @@ TC(w) = sum_i c_i |w_i - w_old_i| + sum_i q_i (w_i - w_old_i)^2
 
 这个脚本不是生产级 Barra，只是为了把数学链路走通。
 
-## 12. 一句话总结
+## 13. 一句话总结
 
 Barra 的核心不是“直接预测股票涨跌”，而是：
 
