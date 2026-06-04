@@ -116,6 +116,10 @@ objective_coefficients = {
     "factor_exposure": factor_exposure_coef,
 }
 
+st.sidebar.header("Risk model scale")
+annualize_risk = st.sidebar.checkbox("Annualize covariance and variance", value=True)
+st.sidebar.caption("打开时 F、D、Sigma 是年化口径；关闭时保留日频口径。alpha 应和这里使用同一时间口径。")
+
 st.sidebar.header("Optimizer constraints")
 upper_bound = st.sidebar.slider("Single-name upper bound", 0.01, 0.30, 0.08, step=0.01)
 turnover_limit = st.sidebar.slider("Turnover limit", 0.05, 2.0, 0.50, step=0.05)
@@ -127,8 +131,8 @@ quadratic_cost = st.sidebar.slider("Quadratic cost", 0.0, 0.050, 0.0000, step=0.
 reg_w = regression_weights(scenario.universe, scenario.specific_vol, "sqrt_market_cap")
 estimated = estimate_factor_returns(scenario.stock_returns, scenario.exposures, reg_w)
 residuals = residuals_panel(scenario.stock_returns, scenario.exposures, estimated)
-f_cov = factor_covariance(estimated, annualize=True)
-spec_var = specific_variance(residuals, scenario.specific_vol, annualize=True)
+f_cov = factor_covariance(estimated, annualize=annualize_risk)
+spec_var = specific_variance(residuals, scenario.specific_vol, annualize=annualize_risk)
 sigma = stock_covariance(scenario.exposures, f_cov, spec_var)
 
 tickers = scenario.exposures.index
@@ -203,7 +207,8 @@ else:
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Objective", f"{result.metrics['objective']:.4%}")
 m2.metric("Expected return", f"{result.metrics['expected_return']:.4%}")
-m3.metric("Volatility", f"{result.metrics['volatility']:.2%}")
+risk_scale_label = "annualized" if annualize_risk else "daily"
+m3.metric(f"Volatility ({risk_scale_label})", f"{result.metrics['volatility']:.2%}")
 m4.metric("Turnover", f"{result.metrics['turnover']:.1%}")
 m5.metric("Active share-like", f"{result.metrics['active_share_like']:.1%}")
 
@@ -211,6 +216,7 @@ with st.expander("Objective formula and coefficients", expanded=True):
     st.caption(
         "目标函数是优化器真正最大化的打分公式；系数越大，该目标项对最终权重的影响越大。"
     )
+    st.caption(f"当前风险矩阵口径：{risk_scale_label}。alpha 的口径应与风险矩阵保持一致。")
     st.code(
         "maximize c_alpha * alpha'w\n"
         "       - 0.5 * c_total_risk * w'Sigma w\n"
