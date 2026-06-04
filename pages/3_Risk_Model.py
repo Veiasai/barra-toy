@@ -113,6 +113,12 @@ with tab4:
     st.subheader("D diagonal")
     st.caption("D 只在对角线上保留每只股票的特质方差，近似认为特质收益彼此不相关。")
     st.dataframe(spec_var.to_frame("specific_variance").round(8), width="stretch")
-    st.subheader("Sigma sample")
-    st.caption("Sigma 是完整的股票协方差矩阵，会被组合风险计算和优化器直接使用。")
-    st.dataframe(sigma.iloc[:60, :60].round(8), width="stretch")
+    st.subheader("Sigma full matrix")
+    st.caption("Sigma 是完整的股票协方差矩阵；表格可滚动查看全部股票，热力图仍只展示 top 50 以避免过密。")
+    st.dataframe(sigma.round(8), width="stretch", height=620)
+    st.download_button(
+        "Download Sigma CSV",
+        sigma.to_csv().encode("utf-8"),
+        file_name="stock_covariance_sigma.csv",
+        mime="text/csv",
+    )
