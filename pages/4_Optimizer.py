@@ -14,14 +14,109 @@ from barra_lab.ui import configure_page, load_scenario, scenario_sidebar
 
 configure_page("Optimizer")
 
+OBJECTIVE_PRESETS = {
+    "Classic mean-risk": {
+        "description": "经典均值-方差目标：追求 alpha，同时惩罚组合总风险。",
+        "expected_return": 1.0,
+        "total_risk": 20.0,
+        "active_risk": 0.0,
+        "benchmark_deviation": 0.0,
+        "concentration": 0.0,
+        "factor_exposure": 0.0,
+    },
+    "Benchmark-aware active": {
+        "description": "更关注相对基准的主动风险，适合学习 benchmark 约束下的调仓。",
+        "expected_return": 1.0,
+        "total_risk": 5.0,
+        "active_risk": 25.0,
+        "benchmark_deviation": 0.0,
+        "concentration": 0.0,
+        "factor_exposure": 0.0,
+    },
+    "Diversified long-only": {
+        "description": "额外惩罚集中持仓，让权重更分散。",
+        "expected_return": 0.8,
+        "total_risk": 15.0,
+        "active_risk": 0.0,
+        "benchmark_deviation": 0.0,
+        "concentration": 1.0,
+        "factor_exposure": 0.0,
+    },
+    "Factor-neutral tilt": {
+        "description": "惩罚组合相对基准的因子暴露，减少风格和行业偏离。",
+        "expected_return": 1.0,
+        "total_risk": 10.0,
+        "active_risk": 10.0,
+        "benchmark_deviation": 0.0,
+        "concentration": 0.0,
+        "factor_exposure": 0.5,
+    },
+    "Stay close to benchmark": {
+        "description": "惩罚权重偏离基准，适合观察轻微调仓。",
+        "expected_return": 0.8,
+        "total_risk": 10.0,
+        "active_risk": 10.0,
+        "benchmark_deviation": 2.0,
+        "concentration": 0.0,
+        "factor_exposure": 0.0,
+    },
+    "Custom coefficients": {
+        "description": "从经典目标开始，自行调整每个目标项的系数。",
+        "expected_return": 1.0,
+        "total_risk": 20.0,
+        "active_risk": 0.0,
+        "benchmark_deviation": 0.0,
+        "concentration": 0.0,
+        "factor_exposure": 0.0,
+    },
+}
+
 st.title("Portfolio Optimizer")
 st.caption("这个页面在 alpha、Barra 风险、交易成本和约束之间权衡，求目标组合权重。")
 
 params = scenario_sidebar()
 scenario = load_scenario(params)
 
-st.sidebar.header("Optimizer")
-risk_aversion = st.sidebar.slider("Risk aversion lambda", 1.0, 100.0, 20.0, step=1.0)
+st.sidebar.header("Objective function")
+objective_preset = st.sidebar.selectbox("Objective preset", list(OBJECTIVE_PRESETS))
+st.sidebar.caption(OBJECTIVE_PRESETS[objective_preset]["description"])
+preset = OBJECTIVE_PRESETS[objective_preset]
+
+expected_return_coef = st.sidebar.slider(
+    "Expected return coefficient",
+    -2.0,
+    5.0,
+    preset["expected_return"],
+    step=0.1,
+)
+st.sidebar.caption("alpha 收益项的系数；越大，优化器越愿意买高 alpha 股票。")
+total_risk_coef = st.sidebar.slider("Total risk coefficient", 0.0, 100.0, preset["total_risk"], step=1.0)
+st.sidebar.caption("总风险惩罚系数；越大，组合整体波动越受压制。")
+active_risk_coef = st.sidebar.slider("Active risk coefficient", 0.0, 100.0, preset["active_risk"], step=1.0)
+st.sidebar.caption("主动风险惩罚系数；主动风险是组合相对 benchmark 的风险。")
+benchmark_deviation_coef = st.sidebar.slider(
+    "Benchmark deviation coefficient",
+    0.0,
+    20.0,
+    preset["benchmark_deviation"],
+    step=0.5,
+)
+st.sidebar.caption("权重偏离基准的惩罚系数；越大，optimized weight 越贴近 benchmark weight。")
+concentration_coef = st.sidebar.slider("Concentration coefficient", 0.0, 10.0, preset["concentration"], step=0.25)
+st.sidebar.caption("集中度惩罚系数；越大，单个股票权重越不容易过大。")
+factor_exposure_coef = st.sidebar.slider("Factor exposure coefficient", 0.0, 5.0, preset["factor_exposure"], step=0.1)
+st.sidebar.caption("因子主动暴露惩罚系数；越大，风格和行业暴露越贴近基准。")
+
+objective_coefficients = {
+    "expected_return": expected_return_coef,
+    "total_risk": total_risk_coef,
+    "active_risk": active_risk_coef,
+    "benchmark_deviation": benchmark_deviation_coef,
+    "concentration": concentration_coef,
+    "factor_exposure": factor_exposure_coef,
+}
+
+st.sidebar.header("Optimizer constraints")
 upper_bound = st.sidebar.slider("Single-name upper bound", 0.01, 0.30, 0.08, step=0.01)
 turnover_limit = st.sidebar.slider("Turnover limit", 0.05, 2.0, 0.50, step=0.05)
 style_limit = st.sidebar.slider("Style active exposure limit", 0.05, 1.50, 0.25, step=0.05)
@@ -90,13 +185,14 @@ result = optimize_portfolio(
     exposures=scenario.exposures,
     benchmark=benchmark,
     current=current,
-    risk_aversion=risk_aversion,
+    risk_aversion=total_risk_coef,
     upper_bound=upper_bound,
     turnover_limit=turnover_limit,
     style_active_limit=style_limit,
     industry_active_limit=industry_limit,
     linear_cost=linear_cost,
     quadratic_cost=quadratic_cost,
+    objective_coefficients=objective_coefficients,
 )
 
 if not result.success:
@@ -110,6 +206,23 @@ m2.metric("Expected return", f"{result.metrics['expected_return']:.4%}")
 m3.metric("Volatility", f"{result.metrics['volatility']:.2%}")
 m4.metric("Turnover", f"{result.metrics['turnover']:.1%}")
 m5.metric("Active share-like", f"{result.metrics['active_share_like']:.1%}")
+
+with st.expander("Objective formula and coefficients", expanded=True):
+    st.caption(
+        "目标函数是优化器真正最大化的打分公式；系数越大，该目标项对最终权重的影响越大。"
+    )
+    st.code(
+        "maximize c_alpha * alpha'w\n"
+        "       - 0.5 * c_total_risk * w'Sigma w\n"
+        "       - 0.5 * c_active_risk * (w-b)'Sigma(w-b)\n"
+        "       - c_benchmark_deviation * sum((w-b)^2)\n"
+        "       - c_concentration * sum(w^2)\n"
+        "       - c_factor_exposure * sum(active_factor_exposure^2)\n"
+        "       - trading_costs",
+        language="text",
+    )
+    coefficient_frame = pd.DataFrame.from_dict(objective_coefficients, orient="index", columns=["coefficient"])
+    st.dataframe(coefficient_frame, width="stretch")
 
 weights = result.weights
 output = pd.DataFrame(
@@ -143,15 +256,18 @@ with tab2:
 
 with tab3:
     st.caption("目标函数可以拆成预期收益、风险惩罚和交易成本几部分，方便观察优化器为什么这么选权重。")
-    parts = pd.Series(
-        {
-            "expected_return": result.metrics["expected_return"],
-            "risk_penalty": -0.5 * risk_aversion * result.metrics["variance"],
-            "linear_cost": -result.metrics["linear_cost"],
-            "quadratic_cost": -result.metrics["quadratic_cost"],
-            "objective": result.metrics["objective"],
-        },
-        name="value",
-    )
+    parts = result.objective_terms.set_index("term")["contribution"]
+    parts.loc["objective"] = result.metrics["objective"]
     st.plotly_chart(bar(parts, "Objective decomposition"))
-    st.dataframe(parts.to_frame().style.format("{:.5%}"), width="stretch")
+    objective_terms = result.objective_terms.copy()
+    objective_terms["enabled"] = objective_terms["coefficient"].abs() > 1e-12
+    st.dataframe(
+        objective_terms.style.format(
+            {
+                "coefficient": "{:.4f}",
+                "raw_value": "{:.5%}",
+                "contribution": "{:.5%}",
+            }
+        ),
+        width="stretch",
+    )
